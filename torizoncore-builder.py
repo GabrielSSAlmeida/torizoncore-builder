@@ -26,7 +26,7 @@ import traceback
 
 from tcbuilder.cli import \
     (bundle, build, combine, deploy, dt, dto, images, isolate, kernel, ostree,
-     platform, push, secboot, splash, splashconfig, ubootenv, union)
+     platform, push, secboot, splash, splashconfig, ubootenv, union, date)
 from tcbuilder.backend.common import set_storage_dir
 
 from tcbuilder.errors import TorizonCoreBuilderError, InvalidArgumentError
@@ -140,6 +140,7 @@ subparsers = parser.add_subparsers(title='Commands', required=True, dest='cmd')
 build.init_parser(subparsers)
 bundle.init_parser(subparsers)
 combine.init_parser(subparsers)
+date.init_parser(subparsers)
 deploy.init_parser(subparsers)
 dt.init_parser(subparsers)
 dto.init_parser(subparsers)
