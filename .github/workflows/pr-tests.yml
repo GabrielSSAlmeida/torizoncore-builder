@@ -29,6 +29,11 @@ env:
   AMD64_DOCKERFILE_NAME: torizoncore-builder.Dockerfile
   AMD64_IMAGE_NAME: torizoncore-builder-amd64
 
+  ARM64_RUNNER: ubuntu-24.04-arm
+  ARM64_ARCH: linux/arm64/v8
+  ARM64_DOCKERFILE_NAME: torizoncore-builder.Dockerfile
+  ARM64_IMAGE_NAME: torizoncore-builder-arm64
+
   TEST_IMAGES_TC6_VERSION: "6.6.1"
   TEST_IMAGE_TC6_32BIT: "torizon-core-docker-colibri-imx7-emmc-Tezi_6.6.1+build.14.tar"
   TEST_IMAGE_TC6_32BIT_ARTIFACTORY_URL: "https://artifacts.toradex.com/artifactory/torizoncore-oe-prod-frankfurt/kirkstone-6.x.y/release/14/colibri-imx7-emmc/torizon-upstream/torizon-core-docker/oedeploy"
@@ -87,8 +92,33 @@ jobs:
       - name: Pylint result
         run: exit ${exit_code}
 
+  lint-python-arm64:
+    runs-on: ${ARM64_RUNNER}
+    steps:
+      - name: Checkout PR merge branch
+        uses: actions/checkout@v4
+
+      - name: Build dev container tcbuilder-dev-arm64
+        run: docker build . -f torizoncore-builder.Dockerfile
+                            --build-arg IMAGE_ARCH=linux/arm64/v8
+                            --target tcbuilder-dev
+                            --tag tcbuilder-dev-arm64
+
+      # Run the code linter disabling only docstring related warnings, use this run as exit code
+      # IMPORTANT: when running locally, DO NOT pass these --disable arguments to the program
+      - name: Run pylint
+        run: docker run --rm -v ${GITHUB_WORKSPACE}:/work -w /work tcbuilder-dev-arm64
+                  pylint --output-format=colorized
+                         --disable=missing-module-docstring
+                         --disable=missing-class-docstring
+                         --disable=missing-function-docstring
+                         --disable=fixme
+                         $(find tcbuilder/ -type f -name "*.py") *.py || echo "exit_code=$?" >> ${GITHUB_ENV}
+      - name: Pylint result
+        run: exit ${exit_code}
+
   test-setup:
-    needs: [lint-dockerfiles, lint-python]
+    needs: [lint-dockerfiles, lint-python, lint-python-arm64]
     runs-on: ubuntu-latest
     outputs:
       date: ${{ steps.get_date.outputs.DATE }}
@@ -400,4 +430,77 @@ jobs:
         run: TCB_REPORT=1 TCB_UNDER_CI=1 TCB_MACHINE=${TEST_RASPI4_MACHINE} ./run.sh
 
       - name: Results for Common Torizon OS 6 Raspberry Pi 4
+        run: if ! grep -q "^not ok" workdir/reports/* ; then echo "All tests passed!"; else grep "^not ok" workdir/reports/* && exit 1; fi
+
+  arm64-build-test-torizoncore6:
+    needs: [test-setup]
+    runs-on: ${ARM64_RUNNER}
+    env:
+      VERSION_SUFFIX: ${{ needs.test-setup.outputs.version_suffix }}
+      DATE: ${{ needs.test-setup.outputs.date }}
+      TCB_IMAGE_TAG: ${{ needs.test-setup.outputs.tcb_image_tag }}
+      TEST_32BIT_MACHINE: ${{ needs.test-setup.outputs.tc6_32bit_machine }}
+      TEST_64BIT_MACHINE: ${{ needs.test-setup.outputs.tc6_64bit_machine }}
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ./tests/integration/
+    steps:
+      - name: Checkout PR repository
+        uses: actions/checkout@v4
+
+      - name: Set Docker image tag
+        run: echo "TCB_IMAGE_TAG=$(echo "$GITHUB_REF_NAME" | sed 's/\//-/g')" >> ${GITHUB_ENV}
+
+      - name: Build TorizonCore Builder
+        run: docker build ../../ -f "../../${ARM64_DOCKERFILE_NAME}"
+                            --build-arg "IMAGE_ARCH=${ARM64_ARCH}"
+                            --build-arg "IMAGE_TAG=${DEBIAN_RELEASE}"
+                            --build-arg "VERSION_SUFFIX=${VERSION_SUFFIX}"
+                            --label "container.name=${ARM64_IMAGE_NAME}"
+                            --label "container.version=${TORIZONCORE_BUILDER_MAJOR}.${TORIZONCORE_BUILDER_MINOR}.${TORIZONCORE_BUILDER_PATCH}-${DATE}"
+                            --label "git.ref=${GITHUB_REF_NAME}"
+                            --label "git.hash=${GITHUB_SHA}"
+                            --label "workflow.id=${GITHUB_RUN_ID}"
+                            -t "${ARM64_IMAGE_NAME}:github-${TCB_IMAGE_TAG}"
+
+      - name: Create test-related directories
+        run: mkdir -p workdir/images && mkdir -p workdir/reports && rm -Rf workdir/reports/*
+
+      - name: Run setup script
+        run: |
+          TCB_SKIP_PULL=1 . ./setup.sh
+          echo "TCB_BG_ALT_NETWORK=${TCB_BG_ALT_NETWORK}" >> ${GITHUB_ENV}
+
+      - name: Download Torizon OS 6 32-bit test image
+        run: 'wget --progress=dot:giga ${TEST_IMAGE_TC6_32BIT_ARTIFACTORY_URL}/${TEST_IMAGE_TC6_32BIT} -O workdir/images/${TEST_IMAGE_TC6_32BIT}'
+
+      - name: Create flag to indicate image was downloaded
+        run: touch workdir/images/.images_downloaded
+
+      - name: Export TCB command
+        run: echo "TCBCMD=docker run --rm -v /deploy -v ${GITHUB_WORKSPACE}/tests/integration/workdir:/workdir -v storage:/storage --net=host -v /var/run/docker.sock:/var/run/docker.sock ${ARM64_IMAGE_NAME}:github-${TCB_IMAGE_TAG}" >> ${GITHUB_ENV}
+
+      - name: Test TCB for Torizon OS 6 32-bit image
+        run: TCB_REPORT=1 TCB_UNDER_CI=1 TCB_MACHINE=${TEST_32BIT_MACHINE} ./run.sh
+
+      - name: Results for Torizon OS 6 32-bit
+        id: tc6-32bit-results
+        run: if ! grep -q "^not ok" workdir/reports/* ; then echo "All tests passed!"; else grep "^not ok" workdir/reports/* && exit 1; fi
+
+      - name: Delete 32-bit reports before starting 64-bit tests
+        if: always() && (steps.tc6-32bit-results.outcome == 'success' || steps.tc6-32bit-results.outcome == 'failure')
+        run: rm -f workdir/reports/*
+
+      - name: Download Torizon OS 6 64-bit test image
+        if: always() && (steps.tc6-32bit-results.outcome == 'success' || steps.tc6-32bit-results.outcome == 'failure')
+        run: 'wget --progress=dot:giga ${TEST_IMAGE_TC6_64BIT_ARTIFACTORY_URL}/${TEST_IMAGE_TC6_64BIT} -O workdir/images/${TEST_IMAGE_TC6_64BIT}'
+
+      - name: Test TCB for Torizon OS 6 64-bit image
+        if: always() && (steps.tc6-32bit-results.outcome == 'success' || steps.tc6-32bit-results.outcome == 'failure')
+        run: TCB_REPORT=1 TCB_UNDER_CI=1 TCB_MACHINE=${TEST_64BIT_MACHINE} TCB_TESTCASE=${TCB_TESTCASES_64BIT} ./run.sh
+
+      - name: Results for Torizon OS 6 64-bit
+        if: always() && (steps.tc6-32bit-results.outcome == 'success' || steps.tc6-32bit-results.outcome == 'failure')
         run: if ! grep -q "^not ok" workdir/reports/* ; then echo "All tests passed!"; else grep "^not ok" workdir/reports/* && exit 1; fi
