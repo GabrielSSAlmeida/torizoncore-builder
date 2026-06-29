@@ -97,7 +97,7 @@ lint-dockerfiles:
            --failure-threshold warning
            --info DL3003 --info DL3008 --info DL3029 --info DL4006
 
-lint-python:
+.lint-python-base:
   stage: pre-build
   rules:
     - if: $CI_PIPELINE_SOURCE == "trigger"
@@ -110,16 +110,16 @@ lint-python:
     - ${T} docker login -u "${CI_REGISTRY_USER}" -p "${CI_REGISTRY_PASSWORD}" "${CI_REGISTRY}"
     - ${T} docker login -u "${CI_DOCKER_HUB_PULL_USER}" -p "${CI_DOCKER_HUB_PULL_PASSWORD}"
     - ${T} docker build -f torizoncore-builder.Dockerfile
-                        --cache-from "${CI_REGISTRY_IMAGE}/tcbuilder-dev-latest"
-                        --build-arg IMAGE_ARCH=linux/amd64
+                        --cache-from "${CI_REGISTRY_IMAGE}/${DEV_CACHE_TAG}"
+                        --build-arg IMAGE_ARCH=${IMAGE_ARCH}
                         --target tcbuilder-dev
-                        --tag tcbuilder-dev-amd64
+                        --tag tcbuilder-dev-${ARCH_SUFFIX}
                         .
-    - ${T} docker tag tcbuilder-dev-amd64 "${CI_REGISTRY_IMAGE}/tcbuilder-dev-latest"
-    - ${T} docker push "${CI_REGISTRY_IMAGE}/tcbuilder-dev-latest"
+    - ${T} docker tag tcbuilder-dev-${ARCH_SUFFIX} "${CI_REGISTRY_IMAGE}/${DEV_CACHE_TAG}"
+    - ${T} docker push "${CI_REGISTRY_IMAGE}/${DEV_CACHE_TAG}"
     # Run the code linter disabling only docstring related warnings, use this run as exit code
     # IMPORTANT: when running locally, DO NOT pass these --disable arguments to the program
-    - ${T} docker run --rm -v $(pwd):/work -w /work ${CI_REGISTRY_IMAGE}/tcbuilder-dev-latest
+    - ${T} docker run --rm -v $(pwd):/work -w /work ${CI_REGISTRY_IMAGE}/${DEV_CACHE_TAG}
            pylint --output-format=colorized
                   --disable=missing-module-docstring
                   --disable=missing-class-docstring
@@ -127,6 +127,22 @@ lint-python:
                   --disable=fixme
                   $(find tcbuilder/ -type f -name "*.py") *.py || exit_code=$?
     - exit ${exit_code}
+
+lint-python-amd64:
+  extends: .lint-python-base
+  variables:
+    ARCH_SUFFIX: amd64
+    IMAGE_ARCH: linux/amd64
+    DEV_CACHE_TAG: tcbuilder-dev-latest
+
+lint-python-arm64:
+  extends: .lint-python-base
+  tags:
+    - arm64
+  variables:
+    ARCH_SUFFIX: arm64
+    IMAGE_ARCH: linux/arm64/v8
+    DEV_CACHE_TAG: tcbuilder-dev-arm64-latest
 
 # Docker image builds
 #
@@ -169,11 +185,11 @@ build-amd64:
     IMAGE_NAME: torizoncore-builder-amd64
     DOCKERFILE_NAME: torizoncore-builder.Dockerfile
 
-# TODO: Consider removing arm64 completely.
 build-arm64:
   extends: .build-base
+  tags:
+    - arm64
   timeout: 5h
-  when: manual
   variables:
     IMAGE_ARCH: linux/arm64/v8
     IMAGE_NAME: torizoncore-builder-arm64
@@ -190,7 +206,8 @@ build-arm64:
       when: never
     - when: on_success
   variables:
-    IMAGE_NAME: torizoncore-builder-amd64
+    TCB_IMAGE_ARCH_SUFFIX: amd64
+    IMAGE_NAME: torizoncore-builder-${TCB_IMAGE_ARCH_SUFFIX}
   before_script:
     - docker info
     # setup environment for the tests
@@ -482,6 +499,98 @@ test-torizoncore:
     - TCB_REPORT=1 TCB_UNDER_CI=1 TCB_MACHINE=${BUILD_MACHINE} TCB_TESTCASE="$TCB_HOST_TESTS" ${T} ./run.sh
     - echo -e "\e[0Ksection_end:$(date +%s):test_section\r\e[0K"
 
+# ---
+# ARM64 host test variants
+# Each job mirrors its amd64 counterpart but pulls torizoncore-builder-arm64.
+# ---
+
+test-host-tc6-platform-release-arm64:
+  extends: test-host-tc6-platform-release
+  tags:
+    - arm64
+  variables:
+    TCB_IMAGE_ARCH_SUFFIX: arm64
+
+test-host-tos7-platform-release-arm64:
+  extends: test-host-tos7-platform-release
+  tags:
+    - arm64
+  variables:
+    TCB_IMAGE_ARCH_SUFFIX: arm64
+
+test-host-tos7-platform-nightly-arm64:
+  extends: test-host-tos7-platform-nightly
+  tags:
+    - arm64
+  variables:
+    TCB_IMAGE_ARCH_SUFFIX: arm64
+
+test-host-tc6-32bit-release-arm64:
+  extends: test-host-tc6-32bit-release
+  tags:
+    - arm64
+  variables:
+    TCB_IMAGE_ARCH_SUFFIX: arm64
+
+test-host-tc6-64bit-release-arm64:
+  extends: test-host-tc6-64bit-release
+  tags:
+    - arm64
+  variables:
+    TCB_IMAGE_ARCH_SUFFIX: arm64
+
+test-host-tos7-32bit-release-arm64:
+  extends: test-host-tos7-32bit-release
+  tags:
+    - arm64
+  variables:
+    TCB_IMAGE_ARCH_SUFFIX: arm64
+
+test-host-tos7-32bit-nightly-arm64:
+  extends: test-host-tos7-32bit-nightly
+  tags:
+    - arm64
+  variables:
+    TCB_IMAGE_ARCH_SUFFIX: arm64
+
+test-host-tos7-64bit-release-arm64:
+  extends: test-host-tos7-64bit-release
+  tags:
+    - arm64
+  variables:
+    TCB_IMAGE_ARCH_SUFFIX: arm64
+
+test-host-tos7-64bit-nightly-arm64:
+  extends: test-host-tos7-64bit-nightly
+  tags:
+    - arm64
+  variables:
+    TCB_IMAGE_ARCH_SUFFIX: arm64
+
+test-host-tos7-32bit-signed-nightly-arm64:
+  extends: test-host-tos7-32bit-signed-nightly
+  tags:
+    - arm64
+    - internal-network-access
+  variables:
+    TCB_IMAGE_ARCH_SUFFIX: arm64
+
+test-host-tos7-64bit-signed-nightly-arm64:
+  extends: test-host-tos7-64bit-signed-nightly
+  tags:
+    - arm64
+    - internal-network-access
+  variables:
+    TCB_IMAGE_ARCH_SUFFIX: arm64
+
+test-host-tos7-torizon-signed-nightly-arm64:
+  extends: test-host-tos7-torizon-signed-nightly
+  tags:
+    - arm64
+    - internal-network-access
+  variables:
+    TCB_IMAGE_ARCH_SUFFIX: arm64
+
 .aggregate-reports:
   stage: report
   image:
@@ -570,8 +679,14 @@ aggregate-reports-manual:
   script:
     - ${D} docker login -u "${CI_REGISTRY_USER}" -p "${CI_REGISTRY_PASSWORD}" "${CI_REGISTRY}"
     - ${D} docker pull "${CI_REGISTRY_IMAGE}/${IMAGE_NAME_AMD64}:${GITLAB_DOCKERREGISTRY_SUFFIX}"
-    - ${D} docker manifest create "${CI_REGISTRY_IMAGE}/${IMAGE_NAME}:${GITLAB_DOCKERREGISTRY_SUFFIX_LATEST}" "${CI_REGISTRY_IMAGE}/${IMAGE_NAME_AMD64}:${GITLAB_DOCKERREGISTRY_SUFFIX}"
-    - ${D} docker manifest annotate "${CI_REGISTRY_IMAGE}/${IMAGE_NAME}:${GITLAB_DOCKERREGISTRY_SUFFIX_LATEST}" "${CI_REGISTRY_IMAGE}/${IMAGE_NAME_AMD64}:${GITLAB_DOCKERREGISTRY_SUFFIX}" --os linux --arch amd64
+    - ${D} docker pull "${CI_REGISTRY_IMAGE}/${IMAGE_NAME_ARM64}:${GITLAB_DOCKERREGISTRY_SUFFIX}"
+    - ${D} docker manifest create "${CI_REGISTRY_IMAGE}/${IMAGE_NAME}:${GITLAB_DOCKERREGISTRY_SUFFIX_LATEST}"
+                                   "${CI_REGISTRY_IMAGE}/${IMAGE_NAME_AMD64}:${GITLAB_DOCKERREGISTRY_SUFFIX}"
+                                   "${CI_REGISTRY_IMAGE}/${IMAGE_NAME_ARM64}:${GITLAB_DOCKERREGISTRY_SUFFIX}"
+    - ${D} docker manifest annotate "${CI_REGISTRY_IMAGE}/${IMAGE_NAME}:${GITLAB_DOCKERREGISTRY_SUFFIX_LATEST}"
+                                    "${CI_REGISTRY_IMAGE}/${IMAGE_NAME_AMD64}:${GITLAB_DOCKERREGISTRY_SUFFIX}" --os linux --arch amd64
+    - ${D} docker manifest annotate "${CI_REGISTRY_IMAGE}/${IMAGE_NAME}:${GITLAB_DOCKERREGISTRY_SUFFIX_LATEST}"
+                                    "${CI_REGISTRY_IMAGE}/${IMAGE_NAME_ARM64}:${GITLAB_DOCKERREGISTRY_SUFFIX}" --os linux --arch arm64 --variant v8
     - ${D} docker manifest inspect -v "${CI_REGISTRY_IMAGE}/${IMAGE_NAME}:${GITLAB_DOCKERREGISTRY_SUFFIX_LATEST}"
     - ${D} docker manifest push "${CI_REGISTRY_IMAGE}/${IMAGE_NAME}:${GITLAB_DOCKERREGISTRY_SUFFIX_LATEST}"
 
@@ -582,10 +697,12 @@ aggregate-reports-manual:
   variables:
     IMAGE_NAME: torizoncore-builder
     IMAGE_NAME_AMD64: torizoncore-builder-amd64
+    IMAGE_NAME_ARM64: torizoncore-builder-arm64
   stage: build-multiarch
 
 build-multiarch-auto:
   extends: .build-multiarch
+  needs: [build-amd64, build-arm64]
   rules:
     # Following condition is needed to avoid the execution of merge-request pipelines.
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
@@ -599,7 +716,7 @@ build-multiarch-auto:
 
 build-multiarch-manual:
   extends: .build-multiarch
-  needs: [build-amd64]
+  needs: [build-amd64, build-arm64]
   rules:
     # Following condition is needed to avoid the execution of merge-request pipelines.
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
@@ -657,8 +774,13 @@ build-multiarch-manual:
         done
     - for tag in ${DOCKER_TAGS} ${DOCKER_TAGS_CHECK};
         do
-          ${D} docker manifest create "${DOCKER_HUB_REPOSITORY}/${IMAGE_NAME}:${tag}" "${DOCKER_HUB_REPOSITORY}/${IMAGE_NAME_AMD64}:${tag}";
-          ${D} docker manifest annotate "${DOCKER_HUB_REPOSITORY}/${IMAGE_NAME}:${tag}" "${DOCKER_HUB_REPOSITORY}/${IMAGE_NAME_AMD64}:${tag}" --os linux --arch amd64;
+          ${D} docker manifest create "${DOCKER_HUB_REPOSITORY}/${IMAGE_NAME}:${tag}"
+                                      "${DOCKER_HUB_REPOSITORY}/${IMAGE_NAME_AMD64}:${tag}"
+                                      "${DOCKER_HUB_REPOSITORY}/${IMAGE_NAME_ARM64}:${tag}";
+          ${D} docker manifest annotate "${DOCKER_HUB_REPOSITORY}/${IMAGE_NAME}:${tag}"
+                                        "${DOCKER_HUB_REPOSITORY}/${IMAGE_NAME_AMD64}:${tag}" --os linux --arch amd64;
+          ${D} docker manifest annotate "${DOCKER_HUB_REPOSITORY}/${IMAGE_NAME}:${tag}"
+                                        "${DOCKER_HUB_REPOSITORY}/${IMAGE_NAME_ARM64}:${tag}" --os linux --arch arm64 --variant v8;
           ${D} docker manifest inspect -v "${DOCKER_HUB_REPOSITORY}/${IMAGE_NAME}:${tag}";
           ${D} docker manifest push "${DOCKER_HUB_REPOSITORY}/${IMAGE_NAME}:${tag}";
         done
@@ -697,8 +819,13 @@ build-multiarch-manual:
         done
     - for tag in ${DOCKER_TAGS} ${DOCKER_TAGS_CHECK};
         do
-          ${D} docker manifest create "${CI_REGISTRY_IMAGE}/${IMAGE_NAME_DEST}:${tag}" "${CI_REGISTRY_IMAGE}/${IMAGE_NAME_AMD64}:${tag}";
-          ${D} docker manifest annotate "${CI_REGISTRY_IMAGE}/${IMAGE_NAME_DEST}:${tag}" "${CI_REGISTRY_IMAGE}/${IMAGE_NAME_AMD64}:${tag}" --os linux --arch amd64;
+          ${D} docker manifest create "${CI_REGISTRY_IMAGE}/${IMAGE_NAME_DEST}:${tag}"
+                                      "${CI_REGISTRY_IMAGE}/${IMAGE_NAME_AMD64}:${tag}"
+                                      "${CI_REGISTRY_IMAGE}/${IMAGE_NAME_ARM64}:${tag}";
+          ${D} docker manifest annotate "${CI_REGISTRY_IMAGE}/${IMAGE_NAME_DEST}:${tag}"
+                                        "${CI_REGISTRY_IMAGE}/${IMAGE_NAME_AMD64}:${tag}" --os linux --arch amd64;
+          ${D} docker manifest annotate "${CI_REGISTRY_IMAGE}/${IMAGE_NAME_DEST}:${tag}"
+                                        "${CI_REGISTRY_IMAGE}/${IMAGE_NAME_ARM64}:${tag}" --os linux --arch arm64 --variant v8;
           ${D} docker manifest inspect -v "${CI_REGISTRY_IMAGE}/${IMAGE_NAME_DEST}:${tag}";
           ${D} docker manifest push "${CI_REGISTRY_IMAGE}/${IMAGE_NAME_DEST}:${tag}";
         done
@@ -779,6 +906,7 @@ deploy-official-multiarch-manual:
   variables:
     IMAGE_NAME: torizoncore-builder
     IMAGE_NAME_AMD64: torizoncore-builder-amd64
+    IMAGE_NAME_ARM64: torizoncore-builder-arm64
 
 # ---
 # Early-access deployment to Docker Hub (used when RELEASE_TYPE is "early-access")
@@ -819,24 +947,40 @@ deploy-ea-amd64-manual:
       when: on_success
     - when: never
 
-# NOTE: arm64 is not being built for early-access ATM.
-#deploy-ea-arm64:
-#  extends: .deploy-dh-base
-#  stage: deploy
-#  rules:
-#    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-#      when: never
-#    # Following condition prevents execution with custom TorizonCore images (triggered by Jenkins).
-#    - if: $BUILD_MACHINE
-#      when: never
-#    - if: '$RELEASE_TYPE == "early-access"'
-#      when: on_success
-#    - when: never
-#  before_script:
-#    - export DOCKER_TAGS_CHECK=""
-#    - export DOCKER_TAGS="early-access"
-#  variables:
-#    IMAGE_NAME: torizoncore-builder-arm64
+.deploy-ea-arm64:
+  extends: .deploy-dh-base
+  stage: deploy
+  before_script:
+    - export DOCKER_TAGS_CHECK=""
+    - export DOCKER_TAGS="early-access"
+  variables:
+    IMAGE_NAME: torizoncore-builder-arm64
+
+deploy-ea-arm64-auto:
+  extends: .deploy-ea-arm64
+  needs: [build-multiarch-auto]
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: never
+    # Following condition prevents execution with custom TorizonCore images (triggered by Jenkins).
+    - if: $BUILD_MACHINE
+      when: never
+    - if: '$RELEASE_TYPE == "early-access"'
+      when: on_success
+    - when: never
+
+deploy-ea-arm64-manual:
+  extends: .deploy-ea-arm64
+  needs: [build-multiarch-manual]
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: never
+    # Following condition prevents execution with custom TorizonCore images (triggered by Jenkins).
+    - if: $BUILD_MACHINE
+      when: never
+    - if: '$RELEASE_TYPE == "early-access"'
+      when: on_success
+    - when: never
 
 .deploy-ea-multiarch:
   extends: .deploy-dh-multiarch-base
@@ -847,10 +991,11 @@ deploy-ea-amd64-manual:
   variables:
     IMAGE_NAME: torizoncore-builder
     IMAGE_NAME_AMD64: torizoncore-builder-amd64
+    IMAGE_NAME_ARM64: torizoncore-builder-arm64
 
 deploy-ea-multiarch-auto:
   extends: .deploy-ea-multiarch
-  needs: [deploy-ea-amd64-auto]
+  needs: [deploy-ea-amd64-auto, deploy-ea-arm64-auto]
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       when: never
@@ -863,7 +1008,7 @@ deploy-ea-multiarch-auto:
 
 deploy-ea-multiarch-manual:
   extends: .deploy-ea-multiarch
-  needs: [deploy-ea-amd64-manual]
+  needs: [deploy-ea-amd64-manual, deploy-ea-arm64-manual]
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       when: never
@@ -898,31 +1043,30 @@ deploy-int-amd64-manual:
     IMAGE_NAME: torizoncore-builder-amd64
     IMAGE_NAME_DEST: torizoncore-builder-internal-amd64
 
-# NOTE: arm64 is not being built for internal ATM.
-# deploy-int-arm64-manual:
-#  extends: .deploy-int-base
-#  stage: deploy
-#  needs: [build-multiarch-manual]
-#  rules:
-#    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-#      when: never
-#    # Following condition prevents execution with custom TorizonCore images (triggered by Jenkins).
-#    - if: $BUILD_MACHINE
-#      when: never
-#    - if: '$RELEASE_TYPE == "internal"'
-#      when: on_success
-#    - when: never
-#  before_script:
-#    - export DOCKER_TAGS_CHECK=""
-#    - export DOCKER_TAGS="${TORIZONCORE_BUILDER_MAJOR} ${TORIZONCORE_BUILDER_MAJOR}-latest"
-#  variables:
-#    IMAGE_NAME: torizoncore-builder-arm64
-#    IMAGE_NAME_DEST: torizoncore-builder-internal-arm64
+deploy-int-arm64-manual:
+  extends: .deploy-int-base
+  stage: deploy
+  needs: [build-multiarch-manual]
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: never
+    # Following condition prevents execution with custom TorizonCore images (triggered by Jenkins).
+    - if: $BUILD_MACHINE
+      when: never
+    - if: '$RELEASE_TYPE == "internal"'
+      when: on_success
+    - when: never
+  before_script:
+    - export DOCKER_TAGS_CHECK=""
+    - export DOCKER_TAGS="${TORIZONCORE_BUILDER_MAJOR} ${TORIZONCORE_BUILDER_MAJOR}-latest"
+  variables:
+    IMAGE_NAME: torizoncore-builder-arm64
+    IMAGE_NAME_DEST: torizoncore-builder-internal-arm64
 
 deploy-int-multiarch-manual:
   extends: .deploy-int-multiarch-base
   stage: deploy-multiarch
-  needs: [deploy-int-amd64-manual]
+  needs: [deploy-int-amd64-manual, deploy-int-arm64-manual]
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       when: never
@@ -939,6 +1083,7 @@ deploy-int-multiarch-manual:
     #IMAGE_NAME: torizoncore-builder
     IMAGE_NAME_DEST: torizoncore-builder-internal
     IMAGE_NAME_AMD64: torizoncore-builder-internal-amd64
+    IMAGE_NAME_ARM64: torizoncore-builder-internal-arm64
 
 # ---
 # Git tagging
