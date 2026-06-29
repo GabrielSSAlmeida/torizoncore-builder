@@ -24,6 +24,12 @@ IMAGE_MAJOR_TO_GCC_MAP = {
     7: "arm-gnu-toolchain-13.3.rel1"
 }
 
+# Toolchain versions used when the host is aarch64 and the target is also aarch64.
+# These are built with crosstool-ng and have a different naming convention.
+IMAGE_MAJOR_TO_GCC_MAP_AARCH64_NATIVE = {
+    7: "crosstool-ng-13.3"
+}
+
 OSTREE_KERNEL_SUBDIR_PATH = "usr/lib/modules/{kver}/"
 OSTREE_KERNEL_FILENAME = "vmlinuz"
 KERNEL_FIT_FILENAME = OSTREE_KERNEL_FILENAME
@@ -40,6 +46,16 @@ SET_BOOTARGS_CUSTOM2_RE = r'^\s*set_bootargs_custom2='
 # copied from sysroot to the changes directory when preparing the latter for
 # building modules.
 MOD_DIR_COPY_EXCLUDE_SET = {"dtb"}
+
+
+def _host_arch():
+    """Return the Arm Ltd. host-arch prefix for cross-compiler toolchain names."""
+    machine = os.uname().machine
+    if machine == "x86_64":
+        return "x86_64"
+    if machine in ("aarch64", "arm64"):
+        return "aarch64"
+    raise TorizonCoreBuilderError(f"Unsupported host architecture: {machine}")
 
 
 def get_kernel_changes_dir():
@@ -103,14 +119,23 @@ def _get_toolchain(image_major_version, linux_src):
 
     # Set CROSS_COMPILE and toolchain based on ARCH
     toolchain_path = os.path.join(os.path.dirname(linux_src), "toolchain")
+    host = _host_arch()
     if arch == "arm":
         c_c = "arm-none-linux-gnueabihf-"
         toolchain = os.path.join(
-            toolchain_path, f"{version_gcc}-x86_64-arm-none-linux-gnueabihf/bin")
+            toolchain_path, f"{version_gcc}-{host}-arm-none-linux-gnueabihf/bin")
     elif arch == "arm64":
-        c_c = "aarch64-none-linux-gnu-"
-        toolchain = os.path.join(
-            toolchain_path, f"{version_gcc}-x86_64-aarch64-none-linux-gnu/bin")
+        if host == "aarch64":
+            # On aarch64 hosts, use a crosstool-ng-built native toolchain.
+            version_gcc = IMAGE_MAJOR_TO_GCC_MAP_AARCH64_NATIVE.get(image_major_version)
+            assert version_gcc, "Unable to determine native aarch64 GCC toolchain version"
+            c_c = "aarch64-unknown-linux-gnu-"
+            toolchain = os.path.join(
+                toolchain_path, f"{version_gcc}-{host}-aarch64-unknown-linux-gnu/bin")
+        else:
+            c_c = "aarch64-none-linux-gnu-"
+            toolchain = os.path.join(
+                toolchain_path, f"{version_gcc}-{host}-aarch64-none-linux-gnu/bin")
     else:
         assert False, "build_module: Unhandled architecture"
 
@@ -239,10 +264,13 @@ def download_toolchain(toolchain, toolchain_path, version_gcc):
     """Download toolchain from online if it doesn't already exist"""
 
     url_prefix = "https://sources.toradex.com/tcb/toolchains/"
+    host = _host_arch()
     if toolchain == "arm-none-linux-gnueabihf-":
-        tarball = f"{version_gcc}-x86_64-arm-none-linux-gnueabihf.tar.xz"
+        tarball = f"{version_gcc}-{host}-arm-none-linux-gnueabihf.tar.xz"
     elif toolchain == "aarch64-none-linux-gnu-":
-        tarball = f"{version_gcc}-x86_64-aarch64-none-linux-gnu.tar.xz"
+        tarball = f"{version_gcc}-{host}-aarch64-none-linux-gnu.tar.xz"
+    elif toolchain == "aarch64-unknown-linux-gnu-":
+        tarball = f"{version_gcc}-{host}-aarch64-unknown-linux-gnu.tar.xz"
     else:
         assert False, f"download_toolchain: unhandled toolchain {toolchain}"
     url = url_prefix + tarball
