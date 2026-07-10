@@ -247,6 +247,8 @@ RUN echo "Fetching U-Boot tools repository..." && \
 # Build the base image for TorizonCore Builder.
 FROM common-base AS tcbuilder-base
 
+ARG IMAGE_ARCH
+
 # Install Bash to allow the use of Bashisms in scripts invoked by TorizonCore Builder.
 RUN apt-get -q -y update && \
     apt-get -q -y --no-install-recommends install \
@@ -397,6 +399,17 @@ RUN echo "Installing 'kernel build_module' (dev) dependencies" && \
             libmpc-dev \
             linux-image-generic \
     && \
+    case "${IMAGE_ARCH}" in \
+      linux/arm64*) \
+        apt-get -q -y --no-install-recommends install \
+                gcc-13=13.3.0-16 \
+                libgcc-13-dev=13.3.0-16 \
+                binutils \
+        && \
+        ln -sf aarch64-linux-gnu-gcc-13 /usr/bin/aarch64-linux-gnu-gcc \
+        ;; \
+      *) ;; \
+    esac && \
     rm -rf /var/lib/apt/lists/*
 
 RUN if [ "$APT_PROXY" != "" ]; then rm /etc/apt/apt.conf.d/30proxy; fi

@@ -24,11 +24,8 @@ IMAGE_MAJOR_TO_GCC_MAP = {
     7: "arm-gnu-toolchain-13.3.rel1"
 }
 
-# Toolchain versions used when the host is aarch64 and the target is also aarch64.
-# These are built with crosstool-ng and have a different naming convention.
-IMAGE_MAJOR_TO_GCC_MAP_AARCH64_NATIVE = {
-    7: "crosstool-ng-13.3"
-}
+# Downloaded directly from Dockerfile 
+AARCH64_NATIVE_SUPPORTED_IMAGE_MAJOR_VERSIONS = {7}
 
 OSTREE_KERNEL_SUBDIR_PATH = "usr/lib/modules/{kver}/"
 OSTREE_KERNEL_FILENAME = "vmlinuz"
@@ -126,12 +123,12 @@ def _get_toolchain(image_major_version, linux_src):
             toolchain_path, f"{version_gcc}-{host}-arm-none-linux-gnueabihf/bin")
     elif arch == "arm64":
         if host == "aarch64":
-            # On aarch64 hosts, use a crosstool-ng-built native toolchain.
-            version_gcc = IMAGE_MAJOR_TO_GCC_MAP_AARCH64_NATIVE.get(image_major_version)
-            assert version_gcc, "Unable to determine native aarch64 GCC toolchain version"
-            c_c = "aarch64-unknown-linux-gnu-"
-            toolchain = os.path.join(
-                toolchain_path, f"{version_gcc}-{host}-aarch64-unknown-linux-gnu/bin")
+            # On aarch64 hosts, the native GCC 13 toolchain installed system-wide
+            # via apt is used directly; there is nothing to download/extract.
+            assert image_major_version in AARCH64_NATIVE_SUPPORTED_IMAGE_MAJOR_VERSIONS, \
+                "Native aarch64 kernel module builds are not supported for this image version"
+            c_c = "aarch64-linux-gnu-"
+            return (None, arch, c_c)
         else:
             c_c = "aarch64-none-linux-gnu-"
             toolchain = os.path.join(
@@ -194,9 +191,12 @@ def build_module(*,
     (toolchain, arch, c_c) = _get_toolchain(image_major_version, linux_src)
     _amend_makefile(linux_src)
 
+    # toolchain is None when using a native toolchain already installed
+    path = f"{os.environ['PATH']}:{toolchain}" if toolchain else os.environ["PATH"]
+
     env_vars = {
         **os.environ.copy(),
-        "PATH": f"{os.environ['PATH']}:{toolchain}",
+        "PATH": path,
         "KERNEL_SRC": linux_src,
         "KDIR": linux_src
     }
@@ -269,8 +269,6 @@ def download_toolchain(toolchain, toolchain_path, version_gcc):
         tarball = f"{version_gcc}-{host}-arm-none-linux-gnueabihf.tar.xz"
     elif toolchain == "aarch64-none-linux-gnu-":
         tarball = f"{version_gcc}-{host}-aarch64-none-linux-gnu.tar.xz"
-    elif toolchain == "aarch64-unknown-linux-gnu-":
-        tarball = f"{version_gcc}-{host}-aarch64-unknown-linux-gnu.tar.xz"
     else:
         assert False, f"download_toolchain: unhandled toolchain {toolchain}"
     url = url_prefix + tarball
