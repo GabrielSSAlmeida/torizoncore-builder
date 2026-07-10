@@ -25,9 +25,12 @@ IMAGE_MAJOR_TO_GCC_MAP = {
 }
 
 # Toolchain versions used when the host is aarch64 and the target is also aarch64.
-# These are built with crosstool-ng and have a different naming convention.
+# This is a native (non-cross) toolchain repackaged straight from Debian trixie's
+# gcc-13/binutils packages, so its naming convention differs from the Arm GNU
+# Toolchain releases used for the other host/target combinations above.
 IMAGE_MAJOR_TO_GCC_MAP_AARCH64_NATIVE = {
-    7: "crosstool-ng-13.3"
+    7: "arm-gnu-toolchain-14.2.rel1",
+    6: "arm-gnu-toolchain-14.2.rel1"
 }
 
 OSTREE_KERNEL_SUBDIR_PATH = "usr/lib/modules/{kver}/"
@@ -126,12 +129,13 @@ def _get_toolchain(image_major_version, linux_src):
             toolchain_path, f"{version_gcc}-{host}-arm-none-linux-gnueabihf/bin")
     elif arch == "arm64":
         if host == "aarch64":
-            # On aarch64 hosts, use a crosstool-ng-built native toolchain.
+            # On aarch64 hosts, use a native (Debian trixie) toolchain instead
+            # of a cross-compiler.
             version_gcc = IMAGE_MAJOR_TO_GCC_MAP_AARCH64_NATIVE.get(image_major_version)
             assert version_gcc, "Unable to determine native aarch64 GCC toolchain version"
-            c_c = "aarch64-unknown-linux-gnu-"
+            c_c = "aarch64-linux-gnu-"
             toolchain = os.path.join(
-                toolchain_path, f"{version_gcc}-{host}-aarch64-unknown-linux-gnu/bin")
+                toolchain_path, f"{version_gcc}-{host}-aarch64-none-linux-gnu/bin")
         else:
             c_c = "aarch64-none-linux-gnu-"
             toolchain = os.path.join(
@@ -269,8 +273,8 @@ def download_toolchain(toolchain, toolchain_path, version_gcc):
         tarball = f"{version_gcc}-{host}-arm-none-linux-gnueabihf.tar.xz"
     elif toolchain == "aarch64-none-linux-gnu-":
         tarball = f"{version_gcc}-{host}-aarch64-none-linux-gnu.tar.xz"
-    elif toolchain == "aarch64-unknown-linux-gnu-":
-        tarball = f"{version_gcc}-{host}-aarch64-unknown-linux-gnu.tar.xz"
+    elif toolchain == "aarch64-linux-gnu-":
+        tarball = f"{version_gcc}-{host}-aarch64-linux-gnu.tar.xz"
     else:
         assert False, f"download_toolchain: unhandled toolchain {toolchain}"
     url = url_prefix + tarball
