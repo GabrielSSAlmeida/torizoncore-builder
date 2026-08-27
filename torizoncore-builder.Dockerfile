@@ -363,6 +363,7 @@ RUN echo "Installing build requirements..." && \
     && \
     \
     echo "Installing Debian requirements (Python code dependencies)..." && \
+    CFLAGS="-DPyInt_AsLong=PyLong_AsLong -DPyString_FromString=PyUnicode_FromString" \
     pip3 install --no-cache-dir --break-system-packages -r /tmp/requirements_debian.txt && \
     rm -rf /tmp/requirements_debian.txt && \
     \
